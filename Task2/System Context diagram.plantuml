@@ -1,0 +1,77 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Целевая контекстная диаграмма (C4 Level 1) - "Здоровье+"
+
+' --- Акторы ---
+Person(patient, "Пациент", "Записывается на прием, оплачивает, смотрит анализы, управляет полисами")
+Person(doctor, "Врач", "Управляет расписанием, просматривает анализы")
+Person(lab_tech, "Лаборант", "Просматривает результаты анализов в LIS")
+
+' --- Новые и существующие системы ---
+System_Boundary(clinic_systems, "ИТ-ландшафт Здоровье+") {
+
+    System(mobile_app, "Мобильное приложение", "Новый интерфейс для пациентов (iOS/Android)", "Новая система")
+
+    System(api_gateway, "API Gateway", "Единая точка входа: rate limiting, идемпотентность, аутентификация, маршрутизация", "Новая система")
+
+    System(msg_broker, "Брокер сообщений (Kafka/RabbitMQ)", "Асинхронная шина данных для событий (записи, анализы, уведомления)", "Новая система")
+
+    System_Ext(observability, "Observability Platform", "Сбор метрик, логов и distributed tracing (Jaeger/Grafana)", "Новая система")
+
+    System(web_portal, "Веб-портал", "Текущий интерфейс для врачей и администраторов")
+    System(schedule, "Расписание", "Управление слотами, запись (Java, REST, PostgreSQL)")
+    System(crm, "CRM", "Карточки пациентов, история, результаты анализов (Java, REST, PostgreSQL)")
+    System(lis, "LIS (Лаборатория)", "Результаты анализов, интеграция с оборудованием (SOAP, FTP, REST)")
+    System(policies_1c, "1С: Полисы", "Проверка валидности ДМС (HTTP-шлюз)")
+    System(notification, "Сервис уведомлений", "Отправка Email/SMS/Push (RabbitMQ)")
+
+    System(adapter_1c, "Адаптер 1С", "Изоляция legacy 1С: Circuit Breaker, ретраи, трансформация JSON/XML", "Новый слой интеграции")
+    System(adapter_lis, "Адаптер LIS", "Изоляция legacy LIS: обработка FTP/SOAP, ретраи, защита от дублей", "Новый слой интеграции")
+}
+
+System_Ext(payment_gw, "Платёжный шлюз", "Внешний поставщик платежей (REST API)")
+System_Ext(push_providers, "Провайдеры Push/SMS/Email", "Внешние сервисы доставки")
+
+' --- Взаимодействия (Потоки данных) ---
+
+' Пациент
+Rel(patient, mobile_app, "Использует", "HTTPS")
+Rel(patient, web_portal, "Использует (устаревающий)", "HTTPS")
+
+' Мобильное приложение и API Gateway
+Rel(mobile_app, api_gateway, "Запросы к API", "HTTPS / REST + JWT")
+
+' API Gateway к системам
+Rel(api_gateway, schedule, "Запись/слоты", "REST (sync, с Idempotency-Key)")
+Rel(api_gateway, crm, "Профиль/история", "REST (sync)")
+Rel(api_gateway, adapter_1c, "Проверка полиса", "REST (sync)")
+Rel(api_gateway, payment_gw, "Оплата", "REST (sync, Saga/Outbox)")
+
+' Врач и Лаборант
+Rel(doctor, web_portal, "Управление расписанием, просмотр", "HTTPS")
+Rel(lab_tech, lis, "Просмотр результатов", "UI / API")
+
+' Шина данных и события
+Rel(schedule, msg_broker, "События записи/отмены", "AMQP")
+Rel(crm, msg_broker, "События обновления профиля", "AMQP")
+Rel(msg_broker, notification, "События для отправки", "AMQP")
+Rel(notification, push_providers, "Отправка Push/SMS", "API")
+
+' Интеграция LIS и CRM (через событийную шину)
+Rel(adapter_lis, msg_broker, "События готовности анализов", "Kafka/AMQP")
+Rel(msg_broker, crm, "Обновление анализов", "Kafka/AMQP")
+Rel(lis, adapter_lis, "Выгрузка результатов", "FTP / SOAP / REST")
+
+' Интеграция 1С
+Rel(adapter_1c, policies_1c, "Запрос проверки", "HTTP")
+
+' Observability
+Rel(api_gateway, observability, "Трейсы/метрики", "OTLP")
+Rel(msg_broker, observability, "Логи", "OTLP")
+Rel(schedule, observability, "Трейсы", "OTLP")
+Rel(crm, observability, "Трейсы", "OTLP")
+
+@enduml

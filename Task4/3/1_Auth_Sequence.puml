@@ -1,0 +1,38 @@
+@startuml
+skinparam maxMessageSize 150
+title Схема аутентификации (OAuth 2.0 + PKCE)
+
+actor "Пациент" as User
+participant "Мобильное\nприложение" as App
+participant "Auth Server\n(OIDC Provider)" as Auth
+participant "API Gateway" as GW
+participant "Микросервисы\n(CRM, Расписание)" as Backend
+
+User -> App: Вводит логин (телефон) и пароль
+activate App
+App -> App: Генерация code_verifier \nи code_challenge (SHA-256)
+App -> Auth: Запрос авторизации \n(login, password, code_challenge)
+activate Auth
+Auth -> User: Отправка OTP (SMS) для MFA
+User -> Auth: Ввод OTP
+Auth --> App: Возврат Authorization Code
+deactivate Auth
+
+App -> Auth: Обмен кода на токены \n(code + code_verifier)
+activate Auth
+Auth -> Auth: Проверка code_verifier
+Auth --> App: Access Token (JWT, 15 мин) \n+ Refresh Token (30 дней)
+deactivate Auth
+
+App -> App: Сохранение токенов в\nKeychain / Keystore
+App -> GW: GET /api/v1/appointments \nHeader: Authorization: Bearer <JWT>
+activate GW
+GW -> GW: Валидация JWT (подпись, exp)
+GW -> Backend: Проксирование запроса \nс данными пользователя
+activate Backend
+Backend --> GW: Данные
+deactivate Backend
+GW --> App: 200 OK (Данные записей)
+deactivate GW
+deactivate App
+@enduml

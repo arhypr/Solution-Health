@@ -1,0 +1,62 @@
+@startuml
+skinparam maxMessageSize 150
+title Поток данных: Доставка результатов анализов в мобильное приложение
+
+participant "Медицинское\nоборудование" as LabEq
+participant "LIS\n(Лаборатория)" as LIS
+participant "LIS Adapter\n(Слой интеграции)" as Adapter
+participant "Message Broker\n(Kafka)" as Broker
+participant "CRM" as CRM
+participant "Сервис\nУведомлений" as Notif
+participant "Push\nПровайдер" as Push
+participant "Мобильное\nприложение" as App
+participant "API Gateway" as APIGW
+
+' 1. Появление результата
+LabEq -> LIS: Передача результатов (HL7/FTP)
+activate LIS
+LIS -> LIS: Сохранение результата
+
+' 2. Адаптер забирает данные
+Adapter -> LIS: Получение новых результатов (REST API)
+activate Adapter
+LIS --> Adapter: Данные анализа (JSON/XML)
+deactivate LIS
+
+Adapter -> Adapter: Валидация и нормализация данных
+Adapter -> Broker: Публикация события \n`AnalysisCompleted` (с уникальным ID)
+activate Broker
+
+' 3. CRM обрабатывает данные
+Broker -> CRM: Доставка события `AnalysisCompleted`
+activate CRM
+CRM -> CRM: Проверка на дубликат (Idempotency)
+alt Результат уже существует
+    CRM -> CRM: Игнорировать дубликат
+else Новый результат
+    CRM -> CRM: Сохранить результат в БД
+    CRM -> Broker: Публикация события \n`ResultReadyForPatient`
+end
+deactivate CRM
+
+' 4. Уведомление пациента
+Broker -> Notif: Получение события `ResultReadyForPatient`
+activate Notif
+Notif -> Push: Запрос на отправку Push
+Push --> Notif: 200 OK
+deactivate Notif
+Push -> App: Push-уведомление "Результаты готовы"
+
+' 5. Просмотр в приложении
+App -> APIGW: Запрос результатов (GET /api/v1/results)
+activate APIGW
+APIGW -> CRM: Запрос к API (с проверкой JWT)
+activate CRM
+CRM --> APIGW: Данные анализа (JSON)
+deactivate CRM
+APIGW --> App: Отображение результатов
+deactivate APIGW
+
+deactivate Broker
+deactivate Adapter
+@enduml

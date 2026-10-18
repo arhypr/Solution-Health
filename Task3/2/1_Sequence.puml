@@ -1,0 +1,56 @@
+@startuml
+skinparam maxMessageSize 150
+title Успешный сценарий: Запись к врачу с оплатой и резервированием анализов
+
+actor "Пациент" as Patient
+participant "Мобильное\nприложение" as App
+participant "API Gateway" as GW
+participant "Оркестратор\nзаписи (SAGA)" as Orchestrator
+participant "Адаптер 1С\n(Полисы)" as Adapter1C
+participant "Сервис\nРасписания" as Schedule
+participant "Адаптер LIS\n(Лаборатория)" as AdapterLIS
+participant "Платёжный\nшлюз" as Payment
+
+Patient -> App: Выбирает врача, время и анализ
+App -> GW: POST /api/v1/bookings \n(Idempotency-Key: UUID)
+activate GW
+GW -> GW: Проверка Idempotency-Key
+GW -> Orchestrator: Запуск саги (CreateBooking)
+deactivate GW
+activate Orchestrator
+
+' 1. Проверка полиса
+Orchestrator -> Adapter1C: Проверить полис ДМС
+activate Adapter1C
+Adapter1C --> Orchestrator: Полис валиден (200 OK)
+deactivate Adapter1C
+
+' 2. Резервирование слота врача
+Orchestrator -> Schedule: Зарезервировать слот (Hold)
+activate Schedule
+Schedule --> Orchestrator: Слот зарезервирован (Hold_ID)
+deactivate Schedule
+
+' 3. Резервирование лаборатории
+Orchestrator -> AdapterLIS: Зарезервировать время забора
+activate AdapterLIS
+AdapterLIS --> Orchestrator: Время зарезервировано (Lab_Hold_ID)
+deactivate AdapterLIS
+
+' 4. Оплата
+Orchestrator -> Payment: Провести оплату (Payment_ID)
+activate Payment
+Payment --> Orchestrator: Оплата успешна (Transaction_ID)
+deactivate Payment
+
+' 5. Подтверждение
+Orchestrator -> Schedule: Подтвердить запись (Confirm)
+activate Schedule
+Schedule --> Orchestrator: Запись подтверждена (Booking_ID)
+deactivate Schedule
+
+Orchestrator --> App: Успех (Данные записи)
+deactivate Orchestrator
+App --> Patient: Показывает подтверждение
+
+@enduml

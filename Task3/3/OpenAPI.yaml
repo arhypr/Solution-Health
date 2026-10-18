@@ -1,0 +1,180 @@
+openapi: 3.0.3
+info:
+  title: API Мобильного приложения "Здоровье+"
+  description: |
+    Спецификация API для мобильного приложения пациентов. 
+    Все запросы проходят через API Gateway (rate limiting, идемпотентность, JWT).
+  version: 1.0.0
+servers:
+  - url: https://api.zdorovie-plus.ru/api/v1
+    description: Production сервер (версия в URL)
+
+tags:
+  - name: Appointments
+    description: Управление записями на прием
+
+paths:
+  /appointments:
+    get:
+      tags:
+        - Appointments
+      summary: Получение списка записей пациента
+      description: Возвращает список записей к врачу. По умолчанию возвращает только предстоящие записи.
+      operationId: getAppointments
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - name: status
+          in: query
+          description: Фильтр по статусу записи
+          required: false
+          schema:
+            type: string
+            enum: [ upcoming, past, canceled ]
+            default: upcoming
+        - name: limit
+          in: query
+          description: Количество записей на странице (максимум 100)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Смещение от начала списка (для пагинации)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Успешный ответ со списком записей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentsResponse'
+              example:
+                data:
+                  - id: "bkg_12345"
+                    doctor_name: "Иванов Иван Иванович"
+                    specialty: "Кардиолог"
+                    date_time: "2024-06-15T10:30:00Z"
+                    status: "upcoming"
+                    clinic_address: "г. Москва, ул. Ленина, д. 10"
+                    price: 3500.00
+                  - id: "bkg_12346"
+                    doctor_name: "Петрова Анна Сергеевна"
+                    specialty: "Терапевт"
+                    date_time: "2024-06-20T14:00:00Z"
+                    status: "upcoming"
+                    clinic_address: "г. Москва, ул. Ленина, д. 10"
+                    price: 2000.00
+                meta:
+                  total: 2
+                  limit: 20
+                  offset: 0
+
+        '401':
+          description: Ошибка авторизации (токен отсутствует, просрочен или невалиден)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "UNAUTHORIZED"
+                message: "Токен доступа отсутствует или недействителен. Пожалуйста, авторизуйтесь снова."
+                timestamp: "2024-05-20T10:00:00Z"
+
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "INTERNAL_SERVER_ERROR"
+                message: "Сервис временно недоступен. Пожалуйста, попробуйте позже."
+                timestamp: "2024-05-20T10:00:00Z"
+                trace_id: "7f3a1b2c-4d5e-6f7g-8h9i-0j1k2l3m4n5o"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Введите JWT токен, полученный при авторизации (формат: Bearer <token>)"
+
+  schemas:
+    AppointmentsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Appointment'
+        meta:
+          type: object
+          properties:
+            total:
+              type: integer
+              description: Общее количество записей, подходящих под фильтр
+            limit:
+              type: integer
+              description: Текущий лимит записей на странице
+            offset:
+              type: integer
+              description: Текущее смещение
+
+    Appointment:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Уникальный идентификатор записи
+          example: "bkg_12345"
+        doctor_name:
+          type: string
+          example: "Иванов Иван Иванович"
+        specialty:
+          type: string
+          example: "Кардиолог"
+        date_time:
+          type: string
+          format: date-time
+          description: Дата и время приема (ISO 8601, UTC)
+          example: "2024-06-15T10:30:00Z"
+        status:
+          type: string
+          enum: [ upcoming, past, canceled ]
+          example: "upcoming"
+        clinic_address:
+          type: string
+          example: "г. Москва, ул. Ленина, д. 10"
+        price:
+          type: number
+          format: float
+          example: 3500.00
+
+    ErrorResponse:
+      type: object
+      properties:
+        error_code:
+          type: string
+          description: Машиночитаемый код ошибки
+          example: "UNAUTHORIZED"
+        message:
+          type: string
+          description: Человекочитаемое описание ошибки
+          example: "Токен доступа недействителен"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-05-20T10:00:00Z"
+        trace_id:
+          type: string
+          description: ID трейса для отладки (сквозная трассировка)
+          example: "7f3a1b2c-4d5e-6f7g-8h9i-0j1k2l3m4n5o"

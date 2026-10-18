@@ -1,0 +1,29 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title C4 Level 1: Снижение нагрузки на 1С через кэширование
+
+Person(patient, "Пациент", "Записывается на прием, вводит номер полиса")
+
+System_Boundary(zdorovie_it, "ИТ-ландшафт 'Здоровье+'") {
+
+    System(mobile_app, "Мобильное приложение", "iOS / Android")
+
+    System(api_gateway, "API Gateway", "Маршрутизация, Rate Limiting, JWT")
+
+    System(adapter_1c, "Адаптер 1С", "Слой интеграции:\n- Circuit Breaker\n- Логика кэширования")
+
+    SystemDb(redis, "Кэш (Redis)", "Хранит результаты проверки полисов\n(TTL 24 часа)")
+
+    System_Ext(1c, "1С: Полисы", "Legacy-система проверки ДМС\n(Лимит: 50 RPS)")
+}
+
+Rel(patient, mobile_app, "Вводит полис / Записывается")
+Rel(mobile_app, api_gateway, "Запрос на проверку полиса", "HTTPS / REST")
+Rel(api_gateway, adapter_1c, "Передача запроса", "REST")
+Rel(adapter_1c, redis, "1. Проверка кэша (GET)", "RESP")
+Rel(adapter_1c, 1c, "2. Запрос при Cache Miss (POST)", "HTTP", "Circuit Breaker защищает этот вызов")
+
+@enduml
